@@ -150,7 +150,7 @@ router.patch("/:id/files/:fileId", auth, async (req, res) => {
     )
       return res.status(403).json({ message: "Access denied" });
     const files = project.files.map((f) =>
-      f._id === req.params.fileId
+      f._id?.toString() === req.params.fileId
         ? {
             ...f,
             ...(req.body.content !== undefined && {
