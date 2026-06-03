@@ -1,27 +1,70 @@
 /**
- * db.js — NeDB database layer
- * Pure JavaScript in-memory + file-persisted database.
- * No MongoDB installation required.
- * API mirrors Mongoose for easy future migration.
+ * db.js — MongoDB via Mongoose
+ * MONGO_URI env variable set karo Railway mein
  */
 
-const Datastore = require('nedb-promises');
-const path = require('path');
-const fs = require('fs');
+const mongoose = require('mongoose');
 
-// Create data directory for persistence
-const DATA_DIR = path.join(__dirname, 'data');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+const MONGO_URI = process.env.MONGO_URI;
+
+if (!MONGO_URI) {
+  console.error('❌ MONGO_URI environment variable not set!');
+  process.exit(1);
+}
+
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('✅ MongoDB connected'))
+  .catch(err => { console.error('❌ MongoDB connection failed:', err.message); process.exit(1); });
+
+const User         = require('./models/User');
+const Project      = require('./models/Project');
+const Session      = require('./models/Session');
+
+// NeDB-compatible API wrapper for MongoDB/Mongoose
+const makeCollection = (Model) => ({
+  // Find one
+  findOne: (query) => Model.findOne(query).lean(),
+
+  // Find many
+  find: (query = {}) => ({
+    lean: () => Model.find(query).lean(),
+    exec: () => Model.find(query).lean(),
+    sort: (s) => ({ lean: () => Model.find(query).sort(s).lean() }),
+  }),
+
+  // Insert
+  insert: (data) => Array.isArray(data)
+    ? Model.insertMany(data)
+    : new Model(data).save().then(d => d.toObject()),
+
+  // Update one
+  update: (query, update, opts = {}) => {
+    const mongoUpdate = update.$set ? update : { $set: update };
+    if (opts.multi) return Model.updateMany(query, mongoUpdate);
+    return Model.findOneAndUpdate(query, mongoUpdate, { new: true, upsert: opts.upsert || false }).lean();
+  },
+
+  // Remove
+  remove: (query, opts = {}) => opts.multi
+    ? Model.deleteMany(query)
+    : Model.deleteOne(query),
+
+  // Count
+  count: (query = {}) => Model.countDocuments(query),
+
+  // Ensure index (no-op for mongoose — handled in schema)
+  ensureIndex: () => {},
+
+  // Raw model access
+  _model: Model,
+});
 
 const db = {
-  users:         Datastore.create({ filename: path.join(DATA_DIR, 'users.db'),         autoload: true }),
-  projects:      Datastore.create({ filename: path.join(DATA_DIR, 'projects.db'),      autoload: true }),
-  sessions:      Datastore.create({ filename: path.join(DATA_DIR, 'sessions.db'),      autoload: true }),
-  tutorSnippets: Datastore.create({ filename: path.join(DATA_DIR, 'tutorSnippets.db'), autoload: true }),
-  batches:       Datastore.create({ filename: path.join(DATA_DIR, 'batches.db'),       autoload: true }),
+  users:         makeCollection(User),
+  projects:      makeCollection(Project),
+  sessions:      makeCollection(Session),
+  tutorSnippets: makeCollection(require('./models/TutorSnippet')),
+  batches:       makeCollection(require('./models/Batch')),
 };
-
-// Ensure unique index on email for users
-db.users.ensureIndex({ fieldName: 'email', unique: true });
 
 module.exports = db;
