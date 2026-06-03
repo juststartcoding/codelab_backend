@@ -275,7 +275,7 @@ const os_run = require("os");
 const path_run = require("path");
 
 router.post("/run", auth, async (req, res) => {
-  const { code, language } = req.body;
+  const { code, language, stdin = "" } = req.body;
   if (!code)
     return res.status(400).json({ output: "No code provided", error: true });
 
@@ -337,12 +337,13 @@ router.post("/run", auth, async (req, res) => {
       }
     }
 
-    // Run
+    // Run with stdin support
     try {
       const stdout = execSync(runCmd, {
         timeout,
         stdio: "pipe",
         maxBuffer: 1024 * 1024,
+        input: stdin || "",
       }).toString();
       res.json({
         output: stdout || "(no output)",
