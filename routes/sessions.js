@@ -27,7 +27,7 @@ router.post('/', auth, requireRole('tutor'), async (req, res) => {
 // Get all active sessions (student only sees sessions for their batches or public ones)
 router.get('/active', auth, async (req, res) => {
   try {
-    let allActive = await db.sessions.find({ isActive: true });
+    let allActive = await db.sessions.find({ isActive: true }).lean();
     allActive.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
 
     if (req.user.role === 'student') {
@@ -46,7 +46,7 @@ router.get('/active', auth, async (req, res) => {
 // Tutor's sessions
 router.get('/my', auth, requireRole('tutor'), async (req, res) => {
   try {
-    const sessions = await db.sessions.find({ tutorId: req.user._id });
+    const sessions = await db.sessions.find({ tutorId: req.user._id }).lean();
     sessions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     res.json(sessions);
   } catch (err) { res.status(500).json({ message: err.message }); }

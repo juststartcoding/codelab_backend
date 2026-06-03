@@ -23,12 +23,12 @@ router.post('/', auth, requireRole('tutor','admin'), async (req, res) => {
 // ── Tutor: get own batches ───────────────────────────────────────────────────
 router.get('/', auth, requireRole('tutor','admin'), async (req, res) => {
   try {
-    const batches = await db.batches.find({ tutorId: req.user._id });
+    const batches = await db.batches.find({ tutorId: req.user._id }).lean();
     batches.sort((a,b) => new Date(b.createdAt)-new Date(a.createdAt));
     // Populate student details
     const populated = await Promise.all(batches.map(async b => {
       const students = b.studentIds.length
-        ? await db.users.find({ _id: { $in: b.studentIds }, role:'student' })
+        ? await db.users.find({ _id: { $in: b.studentIds }, role:'student' }).lean()
         : [];
       return { ...b, students: students.map(stripPassword) };
     }));
@@ -42,7 +42,7 @@ router.get('/:id', auth, async (req, res) => {
     const batch = await db.batches.findOne({ _id: req.params.id });
     if (!batch) return res.status(404).json({ message: 'Batch not found' });
     const students = batch.studentIds.length
-      ? await db.users.find({ _id: { $in: batch.studentIds }, role:'student' })
+      ? await db.users.find({ _id: { $in: batch.studentIds }, role:'student' }).lean()
       : [];
     res.json({ ...batch, students: students.map(stripPassword) });
   } catch(err) { res.status(500).json({ message: err.message }); }
@@ -100,7 +100,7 @@ router.delete('/:id/students/:studentId', auth, requireRole('tutor','admin'), as
 // ── Student: get own batches ──────────────────────────────────────────────────
 router.get('/student/mine', auth, requireRole('student'), async (req, res) => {
   try {
-    const batches = await db.batches.find({ studentIds: req.user._id });
+    const batches = await db.batches.find({ studentIds: req.user._id }).lean();
     batches.sort((a,b) => new Date(b.createdAt)-new Date(a.createdAt));
     res.json(batches);
   } catch(err) { res.status(500).json({ message: err.message }); }
@@ -109,7 +109,7 @@ router.get('/student/mine', auth, requireRole('student'), async (req, res) => {
 // ── All students list (for batch assignment) ──────────────────────────────────
 router.get('/utils/all-students', auth, requireRole('tutor','admin'), async (req, res) => {
   try {
-    const students = await db.users.find({ role:'student' });
+    const students = await db.users.find({ role:'student' }).lean();
     res.json(students.map(stripPassword));
   } catch(err) { res.status(500).json({ message: err.message }); }
 });

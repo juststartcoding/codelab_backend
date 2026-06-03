@@ -18,7 +18,7 @@ async function populateStudent(project) {
 // Student: get own projects
 router.get('/my', auth, requireRole('student'), async (req, res) => {
   try {
-    const projects = await db.projects.find({ studentId: req.user._id });
+    const projects = await db.projects.find({ studentId: req.user._id }).lean();
     projects.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
     res.json(projects);
   } catch (err) { res.status(500).json({ message: err.message }); }
@@ -27,7 +27,7 @@ router.get('/my', auth, requireRole('student'), async (req, res) => {
 // Tutor/Admin: get ALL projects
 router.get('/', auth, requireRole('tutor', 'admin'), async (req, res) => {
   try {
-    const projects = await db.projects.find({});
+    const projects = await db.projects.find({}).lean();
     const populated = await Promise.all(projects.map(populateStudent));
     populated.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
     res.json(populated);

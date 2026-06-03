@@ -23,7 +23,7 @@ router.patch('/profile', auth, requireRole('tutor'), async (req, res) => {
 // ── Snippets (saved programs, categorized) ───────────────────────────────────
 router.get('/snippets', auth, requireRole('tutor'), async (req, res) => {
   try {
-    const snippets = await db.tutorSnippets.find({ tutorId: req.user._id });
+    const snippets = await db.tutorSnippets.find({ tutorId: req.user._id }).lean();
     snippets.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
     res.json(snippets);
   } catch (err) { res.status(500).json({ message: err.message }); }

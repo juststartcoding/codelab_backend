@@ -12,9 +12,8 @@ router.post('/register-tutor', auth, requireRole('admin'), async (req, res) => {
     if (!name || !email || !password) return res.status(400).json({ message: 'Name, email and password required' });
     const exists = await db.users.findOne({ email: email.toLowerCase() });
     if (exists) return res.status(400).json({ message: 'Email already registered' });
-    const hashed = await hashPassword(password);
     const tutor = await db.users.insert({
-      name, email: email.toLowerCase(), password: hashed,
+      name, email: email.toLowerCase(), password: password,
       role: 'tutor', isApproved: true, bio: bio || '',
       languages: languages || ['c', 'cpp'],
       createdAt: new Date(), lastLogin: null
@@ -27,14 +26,14 @@ router.post('/register-tutor', auth, requireRole('admin'), async (req, res) => {
 
 router.get('/tutors', auth, requireRole('admin'), async (req, res) => {
   try {
-    const tutors = await db.users.find({ role: 'tutor' });
+    const tutors = await db.users.find({ role: 'tutor' }).lean();
     res.json(tutors.map(stripPassword).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)));
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
 router.get('/students', auth, requireRole('admin'), async (req, res) => {
   try {
-    const students = await db.users.find({ role: 'student' });
+    const students = await db.users.find({ role: 'student' }).lean();
     res.json(students.map(stripPassword).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)));
   } catch (err) { res.status(500).json({ message: err.message }); }
 });
