@@ -1,0 +1,16 @@
+NEW COLLECTIONS NEEDED:
+1. batches - { name, tutorId, studentIds[], description, createdAt }
+2. Extend sessions - { batchId (optional, null=public) }
+
+NEW SOCKET EVENTS:
+- webrtc:offer/answer/ice-candidate (for camera/screen recording peers)
+- whiteboard:draw (broadcast strokes)
+- whiteboard:clear
+- recording:start/stop
+
+NEW API ROUTES:
+- POST /api/batches - create batch (tutor)
+- GET  /api/batches - get tutor's batches
+- POST /api/batches/:id/students - add students
+- DELETE /api/batches/:id/students/:studentId
+- GET  /api/batches/my - student's batches
