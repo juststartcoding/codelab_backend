@@ -6,7 +6,8 @@ const { auth, requireRole } = require('../middleware/auth');
 const router = express.Router();
 
 // Make a simple file id
-const makeId = () => Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+const mongoose = require('mongoose');
+const makeId = () => new mongoose.Types.ObjectId();
 
 // Populate studentId field manually (NeDB has no populate)
 async function populateStudent(project) {
