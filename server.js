@@ -32,7 +32,9 @@ app.use('/api/tutor',    require('./routes/tutor'));
 app.use('/api/student',  require('./routes/student'));
 app.use('/api/projects', require('./routes/projects'));
 app.use('/api/sessions', require('./routes/sessions'));
-app.use('/api/batches',  require('./routes/batches'));
+app.use('/api/batches',      require('./routes/batches'));
+app.use('/api/assignments',  require('./routes/assignments'));
+app.use('/api/ai',           require('./routes/ai'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'CodeLab API running (NeDB — no MongoDB needed)' });
@@ -144,6 +146,33 @@ io.on('connection', (socket) => {
 
   // ── TUTOR ends session ────────────────────────────────────────────────────
   // ── Whiteboard broadcast ──────────────────────────────────────────────────
+  // ── Student Code Monitor ────────────────────────────────────────────────────
+  // Student sends their code to tutor in realtime
+  socket.on('student:code-update', ({ roomId, studentId, studentName, code, language }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    // Forward to tutor only
+    if (room.tutorSocketId) {
+      io.to(room.tutorSocketId).emit('monitor:student-code', {
+        studentId, studentName, code, language, timestamp: new Date()
+      });
+    }
+    // Store latest code in room for tutor joining late
+    if (!room.studentCodes) room.studentCodes = new Map();
+    room.studentCodes.set(studentId, { studentName, code, language, timestamp: new Date() });
+  });
+
+  // Tutor requests all current student codes
+  socket.on('monitor:request-all', ({ roomId }) => {
+    const room = rooms.get(roomId);
+    if (!room || !room.studentCodes) return;
+    const allCodes = [];
+    room.studentCodes.forEach((val, studentId) => {
+      allCodes.push({ studentId, ...val });
+    });
+    socket.emit('monitor:all-codes', allCodes);
+  });
+
   socket.on('whiteboard:draw', ({ roomId, from, to, color, size, isErase }) => {
     socket.to(roomId).emit('whiteboard:draw', { from, to, color, size, isErase });
   });
