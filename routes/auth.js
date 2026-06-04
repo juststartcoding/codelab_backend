@@ -67,4 +67,36 @@ router.get("/me", auth, (req, res) =>
   res.json({ user: stripPassword(req.user) }),
 );
 
+// ── Change Password ──────────────────────────────────────────────────────────
+router.post("/change-password", auth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword)
+      return res.status(400).json({ message: "Both fields required" });
+    if (newPassword.length < 6)
+      return res
+        .status(400)
+        .json({ message: "New password must be at least 6 characters" });
+
+    const user = await db.users.findOne({ _id: req.user._id });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const ok = await comparePassword(currentPassword, user.password);
+    if (!ok)
+      return res.status(401).json({ message: "Current password is incorrect" });
+
+    // Set new password — pre-save hook will hash it
+    const User = require("../models/User");
+    await User.findByIdAndUpdate(req.user._id, { password: newPassword });
+    // Force hash by using save
+    const u = await User.findById(req.user._id).select("+password");
+    u.password = newPassword;
+    await u.save();
+
+    res.json({ message: "Password changed successfully" });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
 module.exports = router;

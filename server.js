@@ -291,6 +291,29 @@ io.on("connection", (socket) => {
     }
   });
 
+  // ── Shared Notepad ──────────────────────────────────────────────────────────
+  socket.on("notepad:update", ({ roomId, content }) => {
+    const room = activeRooms.get(roomId);
+    if (!room) return;
+    room.notepad = content;
+    // Broadcast to all students (read-only)
+    socket.to(roomId).emit("notepad:updated", { content });
+  });
+
+  socket.on("notepad:request", ({ roomId }) => {
+    const room = activeRooms.get(roomId);
+    if (room?.notepad) {
+      socket.emit("notepad:updated", { content: room.notepad });
+    }
+  });
+
+  // ── Live sync: language change ────────────────────────────────────────────
+  socket.on("tutor:language-change", ({ roomId, language }) => {
+    const room = activeRooms.get(roomId);
+    if (room) room.language = language;
+    socket.to(roomId).emit("language:changed", { language });
+  });
+
   // Tutor broadcasts run output to all students (REST API fallback)
   socket.on(
     "tutor:run-output",

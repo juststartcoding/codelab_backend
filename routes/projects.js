@@ -490,5 +490,41 @@ router.get("/run/stream", auth, (req, res) => {
   });
 });
 
+// POST /lint — Quick syntax check for on-type errors
+router.post("/lint", auth, async (req, res) => {
+  const { code, language } = req.body;
+  if (!code || !["c", "cpp"].includes(language))
+    return res.json({ errors: [] });
+  const tmpDir = fs_run.mkdtempSync(path_run.join(os_run.tmpdir(), "lint-"));
+  try {
+    const ext = language === "cpp" ? "cpp" : "c";
+    const file = path_run.join(tmpDir, `main.${ext}`);
+    fs_run.writeFileSync(file, code);
+    const cmd =
+      language === "cpp"
+        ? `g++ -fsyntax-only -std=c++17 "${file}" 2>&1`
+        : `gcc -fsyntax-only "${file}" -lm 2>&1`;
+    const out = execSync(cmd, { timeout: 5000, stdio: "pipe" }).toString();
+    res.json({ errors: [] });
+  } catch (e) {
+    const raw = e.stdout?.toString() || e.message || "";
+    const errors = [];
+    raw.split("\n").forEach((line) => {
+      const m = line.match(/:(\d+):(\d+):\s+error:\s+(.+)/);
+      if (m)
+        errors.push({
+          line: parseInt(m[1]),
+          col: parseInt(m[2]),
+          message: m[3].trim(),
+        });
+    });
+    res.json({ errors });
+  } finally {
+    try {
+      fs_run.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
+  }
+});
+
 // POST /run/stdin — send input to running stream process (via socket instead)
 // This is handled via socket.io for real-time bidirectional communication

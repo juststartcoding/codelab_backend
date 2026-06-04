@@ -120,4 +120,32 @@ router.patch("/:id/end", auth, requireRole("tutor"), async (req, res) => {
   }
 });
 
+// ── Shared Notepad ────────────────────────────────────────────────────────────
+router.patch("/:id/notepad", auth, requireRole("tutor"), async (req, res) => {
+  try {
+    const { content } = req.body;
+    const session = await db.sessions._model
+      .findByIdAndUpdate(
+        req.params.id,
+        { $set: { notepad: content } },
+        { new: true },
+      )
+      .lean();
+    if (!session) return res.status(404).json({ message: "Session not found" });
+    res.json({ notepad: session.notepad });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+router.get("/:id/notepad", auth, async (req, res) => {
+  try {
+    const session = await db.sessions._model.findById(req.params.id).lean();
+    if (!session) return res.status(404).json({ message: "Not found" });
+    res.json({ notepad: session.notepad || "" });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
 module.exports = router;
