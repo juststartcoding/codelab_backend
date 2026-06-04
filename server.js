@@ -33,8 +33,8 @@ app.use("/api/student", require("./routes/student"));
 app.use("/api/projects", require("./routes/projects"));
 app.use("/api/sessions", require("./routes/sessions"));
 app.use("/api/batches", require("./routes/batches"));
-//app.use('/api/assignments',  require('./routes/assignments'));
-//app.use('/api/ai',           require('./routes/ai'));
+app.use("/api/assignments", require("./routes/assignments"));
+app.use("/api/ai", require("./routes/ai"));
 
 app.get("/api/health", (req, res) => {
   res.json({
