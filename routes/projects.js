@@ -268,100 +268,227 @@ router.delete("/:id", auth, requireRole("student"), async (req, res) => {
 
 module.exports = router;
 
-// ── /run — Execute code (server-side fallback) ──────────────────────────────
-const { execSync } = require("child_process");
+// ── /run — Execute code with interactive stdin ───────────────────────────────
+const { execSync, spawn } = require("child_process");
 const fs_run = require("fs");
 const os_run = require("os");
 const path_run = require("path");
 
+function buildRunConfig(language, code, tmpDir) {
+  let filename, compileCmd, runArgs;
+  switch (language) {
+    case "c":
+      filename = path_run.join(tmpDir, "main.c");
+      fs_run.writeFileSync(filename, code);
+      compileCmd = [
+        "gcc",
+        [filename, "-o", path_run.join(tmpDir, "main"), "-lm"],
+      ];
+      runArgs = [path_run.join(tmpDir, "main"), []];
+      break;
+    case "cpp":
+      filename = path_run.join(tmpDir, "main.cpp");
+      fs_run.writeFileSync(filename, code);
+      compileCmd = [
+        "g++",
+        [filename, "-o", path_run.join(tmpDir, "main"), "-std=c++17"],
+      ];
+      runArgs = [path_run.join(tmpDir, "main"), []];
+      break;
+    case "python":
+      filename = path_run.join(tmpDir, "main.py");
+      fs_run.writeFileSync(filename, code);
+      runArgs = ["python3", ["-u", filename]]; // -u = unbuffered
+      break;
+    case "java":
+      filename = path_run.join(tmpDir, "Main.java");
+      fs_run.writeFileSync(filename, code);
+      compileCmd = ["javac", [filename, "-d", tmpDir]];
+      runArgs = ["java", ["-cp", tmpDir, "Main"]];
+      break;
+    case "javascript":
+      filename = path_run.join(tmpDir, "main.js");
+      fs_run.writeFileSync(filename, code);
+      runArgs = ["node", [filename]];
+      break;
+    default:
+      return null;
+  }
+  return { compileCmd, runArgs };
+}
+
+// POST /run — stdin passed as string (all inputs at once)
 router.post("/run", auth, async (req, res) => {
   const { code, language, stdin = "" } = req.body;
   if (!code)
     return res.status(400).json({ output: "No code provided", error: true });
 
   const tmpDir = fs_run.mkdtempSync(path_run.join(os_run.tmpdir(), "codelab-"));
-  const timeout = 8000; // 8 second timeout
+  const timeout = 10000;
 
   try {
-    let filename, compileCmd, runCmd;
+    const cfg = buildRunConfig(language, code, tmpDir);
+    if (!cfg) return res.json({ output: "Unsupported language", error: true });
 
-    switch (language) {
-      case "c":
-        filename = path_run.join(tmpDir, "main.c");
-        fs_run.writeFileSync(filename, code);
-        compileCmd = `gcc "${filename}" -o "${path_run.join(tmpDir, "main")}" -lm 2>&1`;
-        runCmd = `"${path_run.join(tmpDir, "main")}"`;
-        break;
-      case "cpp":
-        filename = path_run.join(tmpDir, "main.cpp");
-        fs_run.writeFileSync(filename, code);
-        compileCmd = `g++ "${filename}" -o "${path_run.join(tmpDir, "main")}" -std=c++17 2>&1`;
-        runCmd = `"${path_run.join(tmpDir, "main")}"`;
-        break;
-      case "python":
-        filename = path_run.join(tmpDir, "main.py");
-        fs_run.writeFileSync(filename, code);
-        compileCmd = null;
-        runCmd = `python3 "${filename}"`;
-        break;
-      case "java":
-        filename = path_run.join(tmpDir, "Main.java");
-        fs_run.writeFileSync(filename, code);
-        compileCmd = `javac "${filename}" -d "${tmpDir}" 2>&1`;
-        runCmd = `java -cp "${tmpDir}" Main`;
-        break;
-      case "javascript":
-        filename = path_run.join(tmpDir, "main.js");
-        fs_run.writeFileSync(filename, code);
-        compileCmd = null;
-        runCmd = `node "${filename}"`;
-        break;
-      default:
-        return res.json({
-          output: `Language "${language}" is not supported for server-side execution.`,
-          error: false,
-        });
-    }
-
-    // Compile if needed
-    if (compileCmd) {
+    // Compile
+    if (cfg.compileCmd) {
       try {
-        execSync(compileCmd, { timeout, stdio: "pipe" });
-      } catch (compileErr) {
-        fs_run.rmSync(tmpDir, { recursive: true, force: true });
+        execSync(`${cfg.compileCmd[0]} ${cfg.compileCmd[1].join(" ")}`, {
+          timeout,
+          stdio: "pipe",
+        });
+      } catch (e) {
         return res.json({
-          output: compileErr.stdout?.toString() || compileErr.message,
+          output: e.stdout?.toString() || e.message,
           error: true,
           status: "Compilation Error",
         });
       }
     }
 
-    // Run with stdin support
-    try {
-      const stdout = execSync(runCmd, {
-        timeout,
-        stdio: "pipe",
-        maxBuffer: 1024 * 1024,
-        input: stdin || "",
-      }).toString();
-      res.json({
-        output: stdout || "(no output)",
-        error: false,
-        status: "Accepted",
+    // Run — pass all stdin at once (works for scanf, input(), Scanner etc.)
+    return new Promise((resolve) => {
+      const proc = spawn(cfg.runArgs[0], cfg.runArgs[1], {
+        stdio: ["pipe", "pipe", "pipe"],
       });
-    } catch (runErr) {
-      const msg =
-        runErr.stdout?.toString() ||
-        runErr.stderr?.toString() ||
-        runErr.message;
-      res.json({ output: msg, error: true, status: "Runtime Error" });
-    }
+      let output = "";
+      let errOut = "";
+      const timer = setTimeout(() => {
+        proc.kill("SIGKILL");
+      }, timeout);
+
+      proc.stdout.on("data", (d) => {
+        output += d.toString();
+      });
+      proc.stderr.on("data", (d) => {
+        errOut += d.toString();
+      });
+
+      proc.on("close", (code) => {
+        clearTimeout(timer);
+        try {
+          fs_run.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {}
+        const hasError = code !== 0;
+        const finalOut =
+          (output + errOut).trim() ||
+          (hasError ? "Runtime error" : "(no output)");
+        res.json({
+          output: finalOut,
+          error: hasError,
+          status: hasError ? "Runtime Error" : "Accepted",
+        });
+        resolve();
+      });
+
+      proc.on("error", (e) => {
+        clearTimeout(timer);
+        res.json({ output: e.message, error: true, status: "Error" });
+        resolve();
+      });
+
+      // Write all stdin then close
+      if (stdin) {
+        proc.stdin.write(stdin.endsWith("\n") ? stdin : stdin + "\n");
+      }
+      proc.stdin.end();
+    });
   } catch (err) {
-    res.json({ output: err.message, error: true, status: "Error" });
-  } finally {
     try {
       fs_run.rmSync(tmpDir, { recursive: true, force: true });
     } catch {}
+    res.json({ output: err.message, error: true, status: "Error" });
   }
 });
+
+// GET /run/stream — SSE real-time interactive terminal
+router.get("/run/stream", auth, (req, res) => {
+  const { code, language, sessionId } = req.query;
+  if (!code) {
+    res.status(400).end();
+    return;
+  }
+
+  // SSE headers
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  const send = (type, data) =>
+    res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
+
+  const tmpDir = fs_run.mkdtempSync(
+    path_run.join(os_run.tmpdir(), "codelab-stream-"),
+  );
+  const cfg = buildRunConfig(language, decodeURIComponent(code), tmpDir);
+
+  if (!cfg) {
+    send("error", "Unsupported language");
+    res.end();
+    return;
+  }
+
+  const cleanup = () => {
+    try {
+      fs_run.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
+  };
+
+  const doRun = () => {
+    const proc = spawn(cfg.runArgs[0], cfg.runArgs[1], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    // Store proc ref on res so client can send stdin
+    res._proc = proc;
+
+    const timer = setTimeout(() => {
+      proc.kill("SIGKILL");
+      send("error", "Timeout (10s)");
+    }, 10000);
+
+    proc.stdout.on("data", (d) => send("output", d.toString()));
+    proc.stderr.on("data", (d) => send("output", d.toString()));
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      send("done", code === 0 ? "Accepted" : "Runtime Error");
+      cleanup();
+      res.end();
+    });
+    proc.on("error", (e) => {
+      send("error", e.message);
+      cleanup();
+      res.end();
+    });
+  };
+
+  // Compile first if needed
+  if (cfg.compileCmd) {
+    send("output", "Compiling...\n");
+    try {
+      execSync(`${cfg.compileCmd[0]} ${cfg.compileCmd[1].join(" ")}`, {
+        timeout: 8000,
+        stdio: "pipe",
+      });
+      send("output", "Compiled successfully.\n\n");
+      doRun();
+    } catch (e) {
+      send("output", e.stdout?.toString() || e.message);
+      send("done", "Compilation Error");
+      cleanup();
+      res.end();
+    }
+  } else {
+    doRun();
+  }
+
+  req.on("close", () => {
+    if (res._proc) res._proc.kill("SIGKILL");
+    cleanup();
+  });
+});
+
+// POST /run/stdin — send input to running stream process (via socket instead)
+// This is handled via socket.io for real-time bidirectional communication
